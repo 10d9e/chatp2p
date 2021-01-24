@@ -40,7 +40,7 @@ Although not explicitely required, any distributed decentralized network works b
 
 To use a defined port and locally generated key as your node's identity:
 
-`./chat-p2p -use-key -port 42 -info`
+`./chat-p2p -use-key -port 42 -daemon`
 ```
 🔐 Generated identity from key: [QmSPSTKS6BjAnVhiWRzdcRw9v94paU97A4MapFHrUAwKxo]
 🔔 No bootstrappers defined for this node. []

@@ -92,9 +92,9 @@ func main() {
 	roomFlag := flag.String("room", "main", "Name of chat room to join")
 	listenHost := flag.String("host", "0.0.0.0", "The bootstrap node host listen address")
 	port := flag.Int("port", 0, "The node's listening port. This is useful if using this node as a bootstrapper.")
-	// anonymous := flag.Bool("anon", false, "Use an anonymous, ephemeral node identity. This option bypasses the use of your node's keypair.")
 	useKey := flag.Bool("use-key", false, "Use an ECSDS keypair as this node's identifier. The keypair is generated if it does not exist in the app's local config directory.")
 	info := flag.Bool("info", false, "Display node endpoint information before logging into the main chat room")
+	daemon := flag.Bool("daemon", false, "Run as a boostrap daemon only")
 	flag.Parse()
 
 	// Ensure config directory exists
@@ -140,7 +140,7 @@ func main() {
 		pk := getKey()
 		h, err = libp2p.New(ctx, listenAddrs, routing,
 			libp2p.Identity(pk))
-		LogInfo("🔐 Generated identity from key:", h.ID().Pretty())
+		LogInfo("🔐 Using identity from key:", h.ID().Pretty())
 	} else {
 		h, err = libp2p.New(ctx, listenAddrs, routing)
 	}
@@ -216,11 +216,15 @@ func main() {
 		fmt.Scanln() // wait for Enter Key
 	}
 
-	// draw the UI
-	ui := NewChatUI(cr)
-	if err = ui.Run(); err != nil {
-		printErr("error running text UI: %s", err)
-		log.Error("error running text UI: %s", err)
+	if *daemon {
+		select {}
+	} else {
+		// draw the UI
+		ui := NewChatUI(cr)
+		if err = ui.Run(); err != nil {
+			printErr("error running text UI: %s", err)
+			log.Error("error running text UI: %s", err)
+		}
 	}
 }
 
