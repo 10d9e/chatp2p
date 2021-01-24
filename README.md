@@ -1,6 +1,6 @@
-# chatp2p
+# chatp2p ☕
 
-Experimentation with libp2p gossipsub, dht with a sample chat application. This is a fully decentralized chat app whereby users can connect and chat with other users.
+Experimentation with libp2p gossipsub, dht, and peer discovery with a simple chat application. This is a fully decentralized chat app whereby users can connect and chat with other users.
 
 Out of box, this chat application can be used on a local network without explicitely connecting out to bootstrap nodes, using mdns. When connected to other nodes, peer discovery automatically connects all visible nodes to each other via a gossip protocol. 
 
@@ -14,7 +14,7 @@ chatp2p-darwin-amd64			chatp2p-linux-amd64			chatp2p-windows-amd64.exe
 chatp2p-darwin-amd64.checksum		chatp2p-linux-amd64.checksum		chatp2p-windows-amd64.exe.checksum
 ```
 
-## Help
+## ❓Help
 `./chat-p2p -help`
 ```
 % ./chat-p2p -help     
@@ -35,7 +35,7 @@ Usage of ./chat-p2p:
         Use an ECSDS keypair as this node's identifier. The keypair is generated if it does not exist in the app's local config directory.
 ```
 
-## Bootstrap Nodes
+## 👢 Bootstrap Nodes
 Although not explicitely required, any distributed decentralized network works best with some static seed nodes to get things wired up. A static port and ECDSA key identifier can be used to defined a more consistent address for other users to connect to, if you are planning to run as a bootstrap node. 
 
 To use a defined port and locally generated key as your node's identity:
@@ -68,7 +68,7 @@ results in something like:
 
 ## Use a Handle
 To update your nickname handle use the option:
-`./chat-p2p -nick satoasti_notacrumbo`
+`./chat-p2p -nick 💊satoasti_notacrumbo💊`
 
 ## Join a specific room
 To update your nickname handle use the option:
