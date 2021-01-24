@@ -132,8 +132,13 @@ func main() {
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
 			routing,
+			// Let this host use relays and advertise itself on relays if
+			// it finds it is behind NAT. Use libp2p.Relay(options...) to
+			// enable active relays and more.
+			libp2p.EnableAutoRelay(),
 			// Use the defined identity
-			libp2p.Identity(pk))
+			libp2p.Identity(pk),
+		)
 		LogInfo("🔐 Using identity from key:", h.ID().Pretty())
 	} else {
 		h, err = libp2p.New(ctx,
@@ -145,7 +150,12 @@ func main() {
 			// support any other default transports (TCP)
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
-			routing)
+			routing,
+			// Let this host use relays and advertise itself on relays if
+			// it finds it is behind NAT. Use libp2p.Relay(options...) to
+			// enable active relays and more.
+			libp2p.EnableAutoRelay(),
+		)
 	}
 	if err != nil {
 		log.Error(err)
