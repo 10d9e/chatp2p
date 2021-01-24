@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/peer"
 	crypto "github.com/libp2p/go-libp2p-crypto"
+	discovery2 "github.com/libp2p/go-libp2p-discovery"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	routing "github.com/libp2p/go-libp2p-routing"
 	secio "github.com/libp2p/go-libp2p-secio"
@@ -115,7 +116,24 @@ func main() {
 	// DHT Peer routing
 	var idht *dht.IpfsDHT
 	routing := libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
-		idht, err = dht.New(ctx, h)
+		//targetAddr, err := multiaddr.NewMultiaddr(bootstrapPeer)
+		//dht.DefaultBootstrapPeers = []multiaddr.Multiaddr
+		//dht.DefaultBootstrapPeers = append([]multiaddr.Multiaddr, targetAddr)
+
+		dht.DefaultBootstrapPeers = nil
+		ma, err := multiaddr.NewMultiaddr(bootstrapPeer)
+		if err != nil {
+			panic(err)
+		}
+		dht.DefaultBootstrapPeers = append(dht.DefaultBootstrapPeers, ma)
+
+		idht, err = dht.New(ctx, h, dht.RoutingTableRefreshPeriod(10*time.Second))
+		// idht, err = dht.New(ctx, h)
+
+		fmt.Println("Bootstrapping the DHT")
+		if err = idht.Bootstrap(ctx); err != nil {
+			panic(err)
+		}
 		return idht, err
 	})
 
@@ -166,11 +184,6 @@ func main() {
 		panic(err)
 	}
 
-	// test
-	//h.EventBus()
-	//evts := h.EventBus().GetAllEventTypes()
-	//fmt.Println(evts)
-
 	// create a new PubSub service using the GossipSub router
 	ps, err := pubsub.NewGossipSub(ctx, h)
 	if err != nil {
@@ -186,7 +199,35 @@ func main() {
 	}
 
 	// attempt to connect to boostrappers
-	connectBootstrapPeers(ctx, h, bootstrappers)
+	//connectBootstrapPeers(ctx, h, bootstrappers)
+
+	err = setupDHTDiscovery(ctx, h, *roomFlag)
+	if err != nil {
+		log.Error(err)
+		panic(err)
+	}
+
+	// This connects to public bootstrappers
+
+	for _, addr := range dht.DefaultBootstrapPeers {
+
+		LogInfo("🔔 Calling DHT bootstrap peer:", addr)
+
+		targetInfo, err := peer.AddrInfoFromP2pAddr(addr)
+		if err != nil {
+			log.Error(err)
+			//return
+		}
+
+		err = h.Connect(ctx, *targetInfo)
+		if err != nil {
+			log.Error(err)
+			//return
+		} else {
+			LogInfo("📞 Connected to bootstrap peer:", targetInfo.ID)
+		}
+
+	}
 
 	if *info {
 		fmt.Print("👢 Available endpoints: \n")
@@ -355,5 +396,93 @@ func setupMdnsDiscovery(ctx context.Context, h host.Host) error {
 
 	n := discoveryNotifee{h: h}
 	disc.RegisterNotifee(&n)
+	return nil
+}
+
+func setupDHTDiscovery(ctx context.Context, host host.Host, roomFlag string) error {
+
+	// Start a DHT, for use in peer discovery. We can't just make a new DHT
+	// client because we want each peer to maintain its own local copy of the
+	// DHT, so that the bootstrapping node of the DHT can go down without
+	// inhibiting future peer discovery.
+	kademliaDHT, err := dht.New(ctx, host)
+	if err != nil {
+		panic(err)
+	}
+
+	// Bootstrap the DHT. In the default configuration, this spawns a Background
+	// thread that will refresh the peer table every five minutes.
+	log.Debug("Bootstrapping the DHT")
+	if err = kademliaDHT.Bootstrap(ctx); err != nil {
+		panic(err)
+	}
+
+	// Let's connect to the bootstrap nodes first. They will tell us about the
+	// other nodes in the network.
+	/*
+		var wg sync.WaitGroup
+		for _, peerAddr := range config.BootstrapPeers {
+			peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := host.Connect(ctx, *peerinfo); err != nil {
+					log.Warning(err)
+				} else {
+					log.Info("Connection established with bootstrap node:", *peerinfo)
+				}
+			}()
+		}
+		wg.Wait()
+	*/
+
+	// We use a rendezvous point "meet me here" to announce our location.
+	// This is like telling your friends to meet you at the Eiffel Tower.
+	log.Info("Announcing ourselves...")
+	routingDiscovery := discovery2.NewRoutingDiscovery(kademliaDHT)
+	discovery2.Advertise(ctx, routingDiscovery, roomFlag)
+	log.Debug("Successfully announced!")
+
+	// Now, look for others who have announced
+	// This is like your friend telling you the location to meet you.
+	log.Debug("Searching for other peers...")
+	peerChan, err := routingDiscovery.FindPeers(ctx, roomFlag)
+	if err != nil {
+		panic(err)
+	}
+
+	for peer := range peerChan {
+		if peer.ID == host.ID() {
+			continue
+		}
+		log.Info("Found peer:", peer)
+
+		log.Info("Connecting to:", peer)
+
+		/*
+			if err := host.Connect(ctx, *peer.Addrs); err != nil {
+				log.Warning(err)
+			} else {
+				log.Info("Connection established with bootstrap node:", *peerinfo)
+			}
+		*/
+
+		/*
+			stream, err := host.NewStream(ctx, peer.ID, protocol.ID(config.ProtocolID))
+
+			if err != nil {
+				log.Warning("Connection failed:", err)
+				continue
+			} else {
+				rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
+
+				go writeData(rw)
+				go readData(rw)
+			}
+		*/
+
+		log.Info("Connected to:", peer)
+	}
+
 	return nil
 }
