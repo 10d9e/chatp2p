@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
+version=$1
 package_name="chatp2p"
-if [[ -z "$package_name" ]]; then
-  echo "usage: $0 <package-name>"
+if [[ -z "$version" ]]; then
+  echo "usage: $0 <version>"
   exit 1
 fi
 
@@ -15,7 +16,7 @@ do
     platform_split=(${platform//\// })
     GOOS=${platform_split[0]}
     GOARCH=${platform_split[1]}
-    output_name=$package_name'-'$GOOS'-'$GOARCH
+    output_name=$package_name'-'$version'-'$GOOS'-'$GOARCH
     if [ $GOOS = "windows" ]; then
         output_name+='.exe'
     fi
