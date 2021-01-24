@@ -14,7 +14,7 @@ chatp2p-darwin-amd64			chatp2p-linux-amd64			chatp2p-windows-amd64.exe
 chatp2p-darwin-amd64.checksum		chatp2p-linux-amd64.checksum		chatp2p-windows-amd64.exe.checksum
 ```
 
-## ❓Help
+## Help
 `./chat-p2p -help`
 ```
 % ./chat-p2p -help     
@@ -35,7 +35,7 @@ Usage of ./chat-p2p:
         Use an ECSDS keypair as this node's identifier. The keypair is generated if it does not exist in the app's local config directory.
 ```
 
-## 👢 Bootstrap Nodes
+## Bootstrap Nodes
 Although not explicitely required, any distributed decentralized network works best with some static seed nodes to get things wired up. A static port and ECDSA key identifier can be used to defined a more consistent address for other users to connect to, if you are planning to run as a bootstrap node. 
 
 To use a defined port and locally generated key as your node's identity:
