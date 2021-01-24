@@ -132,6 +132,8 @@ func main() {
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
 			routing,
+			// Attempt to open ports using uPNP for NATed hosts.
+			libp2p.NATPortMap(),
 			// Let this host use relays and advertise itself on relays if
 			// it finds it is behind NAT. Use libp2p.Relay(options...) to
 			// enable active relays and more.
@@ -151,6 +153,8 @@ func main() {
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
 			routing,
+			// Attempt to open ports using uPNP for NATed hosts.
+			libp2p.NATPortMap(),
 			// Let this host use relays and advertise itself on relays if
 			// it finds it is behind NAT. Use libp2p.Relay(options...) to
 			// enable active relays and more.
