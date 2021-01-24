@@ -15,13 +15,16 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/peer"
 	crypto "github.com/libp2p/go-libp2p-crypto"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	routing "github.com/libp2p/go-libp2p-routing"
+	secio "github.com/libp2p/go-libp2p-secio"
+	libp2ptls "github.com/libp2p/go-libp2p-tls"
 	"github.com/libp2p/go-libp2p/p2p/discovery"
 	"github.com/multiformats/go-multiaddr"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/libp2p/go-libp2p-core/host"
-	kaddht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 
 	"github.com/kirsle/configdir"
@@ -108,29 +111,51 @@ func main() {
 		fmt.Sprintf("/ip4/%s/tcp/%d", *listenHost, *port),
 	)
 
+	var err error
 	// DHT Peer routing
-	var dht *kaddht.IpfsDHT
-	newDHT := func(h host.Host) (routing.PeerRouting, error) {
-		var err error
-		dht, err = kaddht.New(ctx, h)
-		return dht, err
-	}
-	routing := libp2p.Routing(newDHT)
+	var idht *dht.IpfsDHT
+	routing := libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
+		idht, err = dht.New(ctx, h)
+		return idht, err
+	})
 
 	var h host.Host
-	var err error
 	if *useKey {
 		pk := getKey()
-		h, err = libp2p.New(ctx, listenAddrs, routing,
+		h, err = libp2p.New(ctx,
+			listenAddrs,
+			// support TLS connections
+			libp2p.Security(libp2ptls.ID, libp2ptls.New),
+			// support secio connections
+			libp2p.Security(secio.ID, secio.New),
+			// support any other default transports (TCP)
+			libp2p.DefaultTransports,
+			// Let this host use the DHT to find other hosts
+			routing,
+			// Use the defined identity
 			libp2p.Identity(pk))
 		LogInfo("🔐 Using identity from key:", h.ID().Pretty())
 	} else {
-		h, err = libp2p.New(ctx, listenAddrs, routing)
+		h, err = libp2p.New(ctx,
+			listenAddrs,
+			// support TLS connections
+			libp2p.Security(libp2ptls.ID, libp2ptls.New),
+			// support secio connections
+			libp2p.Security(secio.ID, secio.New),
+			// support any other default transports (TCP)
+			libp2p.DefaultTransports,
+			// Let this host use the DHT to find other hosts
+			routing)
 	}
 	if err != nil {
 		log.Error(err)
 		panic(err)
 	}
+
+	// test
+	//h.EventBus()
+	//evts := h.EventBus().GetAllEventTypes()
+	//fmt.Println(evts)
 
 	// create a new PubSub service using the GossipSub router
 	ps, err := pubsub.NewGossipSub(ctx, h)
@@ -140,23 +165,7 @@ func main() {
 	}
 
 	// setup local mDNS discovery
-	err = setupDiscovery(ctx, h)
-	if err != nil {
-		log.Error(err)
-		panic(err)
-	}
-
-	// use the nickname from the cli flag, or a default if blank
-	nick := *nickFlag
-	if len(nick) == 0 {
-		nick = defaultNick(h.ID())
-	}
-
-	// join the room from the cli flag, or the flag default
-	room := *roomFlag
-
-	// join the chat room
-	cr, err := JoinChatRoom(ctx, ps, h.ID(), nick, room)
+	err = setupMdnsDiscovery(ctx, h)
 	if err != nil {
 		log.Error(err)
 		panic(err)
@@ -173,6 +182,22 @@ func main() {
 		}
 		fmt.Println("Press any key to continue...")
 		fmt.Scanln() // wait for Enter Key
+	}
+
+	// use the nickname from the cli flag, or a default if blank
+	nick := *nickFlag
+	if len(nick) == 0 {
+		nick = defaultNick(h.ID())
+	}
+
+	// join the room from the cli flag, or the flag default
+	room := *roomFlag
+
+	// join the chat room
+	cr, err := JoinChatRoom(ctx, ps, h.ID(), nick, room)
+	if err != nil {
+		log.Error(err)
+		panic(err)
 	}
 
 	if *daemon {
@@ -307,7 +332,7 @@ func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
 
 // setupDiscovery creates an mDNS discovery service and attaches it to the libp2p Host.
 // This lets us automatically discover peers on the same LAN and connect to them.
-func setupDiscovery(ctx context.Context, h host.Host) error {
+func setupMdnsDiscovery(ctx context.Context, h host.Host) error {
 	// setup mDNS discovery to find local peers
 	disc, err := discovery.NewMdnsService(ctx, h, DiscoveryInterval, DiscoveryServiceTag)
 	if err != nil {
