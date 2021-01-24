@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -83,6 +84,8 @@ func createKey() {
 	fmt.Println("🔑 ECDSA key generated")
 }
 
+const bootstrapPeer = "/ip4/35.224.203.143/tcp/4001/p2p/QmeRw9ZbkupTq89mrsXFX87pxzYpXR9Bmems25LPKvPbwQ"
+
 var log = logrus.New()
 
 func main() {
@@ -97,27 +100,7 @@ func main() {
 	daemon := flag.Bool("daemon", false, "Run as a boostrap daemon only")
 	flag.Parse()
 
-	// Ensure config directory exists
-	configPath := configdir.LocalConfig("chatp2p")
-	er := configdir.MakePath(configPath) // Ensure it exists.
-	if er != nil {
-		panic(er)
-	}
-
-	// set up logging
-	logfile := configdir.LocalConfig("chatp2p", "chatp2p.log")
-	file, erro := os.OpenFile(logfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if erro == nil {
-		log.Out = file
-	} else {
-		log.Info("Failed to log to file, using default stderr")
-	}
-
-	fmt.Println(configPath)
-	keyfile := configdir.LocalConfig("chatp2p", ".key")
-	if _, err := os.Stat(keyfile); os.IsNotExist(err) {
-		createKey()
-	}
+	configSetup()
 
 	ctx := context.Background()
 
@@ -179,32 +162,8 @@ func main() {
 		panic(err)
 	}
 
-	if len(bootstrappers) == 0 {
-		LogInfo("🔔 No bootstrappers defined for this node.")
-	}
-
-	for _, s := range bootstrappers {
-		//fmt.Println("Connecting to bootstrap node: ", s)
-		targetAddr, err := multiaddr.NewMultiaddr(s)
-		if err != nil {
-			log.Error(err)
-			panic(err)
-		}
-
-		targetInfo, err := peer.AddrInfoFromP2pAddr(targetAddr)
-		if err != nil {
-			log.Error(err)
-			panic(err)
-		}
-
-		err = h.Connect(ctx, *targetInfo)
-		if err != nil {
-			log.Error(err)
-			panic(err)
-		}
-
-		LogInfo("📞 Connected to bootstrap peer:", targetInfo.ID)
-	}
+	// attempt to connect to boostrappers
+	connectBootstrapPeers(ctx, h, bootstrappers)
 
 	if *info {
 		fmt.Print("👢 Available endpoints: \n")
@@ -225,6 +184,85 @@ func main() {
 			printErr("error running text UI: %s", err)
 			log.Error("error running text UI: %s", err)
 		}
+	}
+}
+
+func configSetup() {
+	// Ensure config directory exists
+	configPath := configdir.LocalConfig("chatp2p")
+	er := configdir.MakePath(configPath) // Ensure it exists.
+	if er != nil {
+		panic(er)
+	}
+
+	// set up logging
+	logfile := configdir.LocalConfig("chatp2p", "chatp2p.log")
+	file, erro := os.OpenFile(logfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if erro == nil {
+		log.Out = file
+	} else {
+		log.Info("Failed to log to file, using default stderr")
+	}
+
+	fmt.Println(configPath)
+	keyfile := configdir.LocalConfig("chatp2p", ".key")
+	if _, err := os.Stat(keyfile); os.IsNotExist(err) {
+		createKey()
+	}
+	bootstrapFile := configdir.LocalConfig("chatp2p", "bootstrappers")
+	if _, err := os.Stat(bootstrapFile); os.IsNotExist(err) {
+		d1 := []byte(bootstrapPeer + "\n")
+		err := ioutil.WriteFile(bootstrapFile, d1, 0644)
+		if err != nil {
+			log.Error(err)
+			panic(err)
+		}
+	}
+}
+
+func connectBootstrapPeers(ctx context.Context, h host.Host, bootstrappers []string) {
+
+	bootstrapFile := configdir.LocalConfig("chatp2p", "bootstrappers")
+	file, err := os.Open(bootstrapFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		bootstrappers = append(bootstrappers, scanner.Text())
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	if len(bootstrappers) == 0 {
+		LogInfo("🔔 No bootstrappers defined for this node.")
+	}
+
+	for _, s := range bootstrappers {
+		LogInfo("🔔 Calling bootstrap peer:", s)
+		targetAddr, err := multiaddr.NewMultiaddr(s)
+		if err != nil {
+			log.Error(err)
+			return
+		}
+
+		targetInfo, err := peer.AddrInfoFromP2pAddr(targetAddr)
+		if err != nil {
+			log.Error(err)
+			return
+		}
+
+		err = h.Connect(ctx, *targetInfo)
+		if err != nil {
+			log.Error(err)
+			return
+		}
+
+		LogInfo("📞 Connected to bootstrap peer:", targetInfo.ID)
 	}
 }
 
