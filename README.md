@@ -52,11 +52,19 @@ This will allow you to inform other users that they can connect to your node usi
 
 ### Configuring the Boostrap Daemon on macos/linux/*nix
 
+To run the bootstrap node as a background process:
+
+1. Create/edit a script `vi bootstrap_chatp2p.sh`
+2. Add the following contents:
 ``` bash
 #!/bin/bash
 
 ./chatp2p-linux -daemon -port 1984 -use-key > chatp2p-test.log 2>&1 &
 ```
+3. Update the execute permissions: `chmod +x bootstrap_chatp2p.sh`
+4. Run it: `./bootstrap_chatp2p.sh`. This will start up the node as a background process.
+5. To check that it is still up and running: `ps aux | grep chatp2p`
+6. To check the logs: `cat ~/.config/chatp2p/chatp2p.log`
 
 ## Connecting to bootstrap nodes
 If we want to connect clients to our bootstrap node and another known node, we can issue the following command:
