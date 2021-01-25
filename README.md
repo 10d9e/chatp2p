@@ -50,6 +50,14 @@ To use a defined port and locally generated key as your node's identity:
 ```
 This will allow you to inform other users that they can connect to your node using the option `-connect /ip4/<public-ip>/tcp/42/p2p/QmSPSTKS6BjAnVhiWRzdcRw9v94paU97A4MapFHrUAwKxo`. Having other nodes use the `Available endpoints` will initiate peer discovery with all known nodes on each side, propogating across the entire network.
 
+### Configuring the Boostrap Daemon on macos/linux/*nix
+
+``` bash
+#!/bin/bash
+
+./chatp2p-linux -daemon -port 1984 -use-key > chatp2p-test.log 2>&1 &
+```
+
 ## Connecting to bootstrap nodes
 If we want to connect clients to our bootstrap node and another known node, we can issue the following command:
 `./chat-p2p -connect /ip4/35.224.203.143/tcp/4001/p2p/QmYmW8X9y16LyxpB82ossgw9h18xBu7dHR5wWHcB1hGA1p -connect /ip4/127.0.0.1/tcp/42/p2p/QmSKe3vVEA7wXGfCnpWsRnnWjY79giiQKKnnSsxhbK47XP`
