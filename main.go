@@ -12,31 +12,29 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kirsle/configdir"
+
 	"github.com/libp2p/go-libp2p"
 	connmgr "github.com/libp2p/go-libp2p-connmgr"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	cr "github.com/libp2p/go-libp2p-core/routing"
 	crypto "github.com/libp2p/go-libp2p-crypto"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	libp2pquic "github.com/libp2p/go-libp2p-quic-transport"
 	secio "github.com/libp2p/go-libp2p-secio"
 	libp2ptls "github.com/libp2p/go-libp2p-tls"
 	"github.com/libp2p/go-libp2p/p2p/discovery"
 	"github.com/multiformats/go-multiaddr"
-
 	"github.com/sirupsen/logrus"
-
-	"github.com/libp2p/go-libp2p-core/host"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
-
-	"github.com/kirsle/configdir"
 )
 
 // DiscoveryInterval is how often we re-publish our mDNS records.
 const DiscoveryInterval = time.Hour
 
 // DiscoveryServiceTag is used in our mDNS advertisements to discover other chat peers.
-const DiscoveryServiceTag = "pubsub-chat-example"
+const DiscoveryServiceTag = "chatp2p"
 
 // bootstrappers
 type arrayFlags []string
