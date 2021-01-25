@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	connmgr "github.com/libp2p/go-libp2p-connmgr"
 	"github.com/libp2p/go-libp2p-core/peer"
 	crypto "github.com/libp2p/go-libp2p-crypto"
 	discovery2 "github.com/libp2p/go-libp2p-discovery"
@@ -127,8 +128,9 @@ func main() {
 		}
 		dht.DefaultBootstrapPeers = append(dht.DefaultBootstrapPeers, ma)
 
-		idht, err = dht.New(ctx, h, dht.RoutingTableRefreshPeriod(10*time.Second))
-		// idht, err = dht.New(ctx, h)
+		// idht, err = dht.New(ctx, h, dht.RoutingTableRefreshPeriod(10*time.Second), dht.Mode(dht.ModeServer))
+
+		idht, err = dht.New(ctx, h, dht.Mode(dht.ModeServer))
 
 		fmt.Println("Bootstrapping the DHT")
 		if err = idht.Bootstrap(ctx); err != nil {
@@ -136,6 +138,12 @@ func main() {
 		}
 		return idht, err
 	})
+
+	cm := connmgr.NewConnManager(
+		100,         // Lowwater
+		400,         // HighWater,
+		time.Minute, // GracePeriod
+	)
 
 	var h host.Host
 	if *useKey {
@@ -150,6 +158,8 @@ func main() {
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
 			routing,
+			// Connection Manager
+			libp2p.ConnectionManager(cm),
 			// Attempt to open ports using uPNP for NATed hosts.
 			libp2p.NATPortMap(),
 			// Let this host use relays and advertise itself on relays if
@@ -171,6 +181,8 @@ func main() {
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
 			routing,
+			// Connection Manager
+			libp2p.ConnectionManager(cm),
 			// Attempt to open ports using uPNP for NATed hosts.
 			libp2p.NATPortMap(),
 			// Let this host use relays and advertise itself on relays if
