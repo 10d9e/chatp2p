@@ -12,29 +12,29 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kirsle/configdir"
+
 	"github.com/libp2p/go-libp2p"
+	connmgr "github.com/libp2p/go-libp2p-connmgr"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
+	cr "github.com/libp2p/go-libp2p-core/routing"
 	crypto "github.com/libp2p/go-libp2p-crypto"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
-	routing "github.com/libp2p/go-libp2p-routing"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	libp2pquic "github.com/libp2p/go-libp2p-quic-transport"
 	secio "github.com/libp2p/go-libp2p-secio"
 	libp2ptls "github.com/libp2p/go-libp2p-tls"
 	"github.com/libp2p/go-libp2p/p2p/discovery"
 	"github.com/multiformats/go-multiaddr"
-
 	"github.com/sirupsen/logrus"
-
-	"github.com/libp2p/go-libp2p-core/host"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
-
-	"github.com/kirsle/configdir"
 )
 
 // DiscoveryInterval is how often we re-publish our mDNS records.
 const DiscoveryInterval = time.Hour
 
 // DiscoveryServiceTag is used in our mDNS advertisements to discover other chat peers.
-const DiscoveryServiceTag = "pubsub-chat-example"
+const DiscoveryServiceTag = "chatp2p"
 
 // bootstrappers
 type arrayFlags []string
@@ -109,15 +109,33 @@ func main() {
 
 	listenAddrs := libp2p.ListenAddrStrings(
 		fmt.Sprintf("/ip4/%s/tcp/%d", *listenHost, *port),
+		fmt.Sprintf("/ip4/%s/udp/%d/quic", *listenHost, *port),
 	)
 
 	var err error
 	// DHT Peer routing
 	var idht *dht.IpfsDHT
-	routing := libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
-		idht, err = dht.New(ctx, h)
+	routing := libp2p.Routing(func(h host.Host) (cr.PeerRouting, error) {
+		dht.DefaultBootstrapPeers = nil
+		bootstrapPeers, err := collectBootstrapAddrInfos(ctx)
+		idht, err = dht.New(ctx, h,
+			dht.Mode(dht.ModeServer),
+			dht.ProtocolPrefix("/chatp2p/kad/1.0.0"),
+			dht.BootstrapPeers(bootstrapPeers...),
+		)
+
+		fmt.Println("Bootstrapping the DHT")
+		if err = idht.Bootstrap(ctx); err != nil {
+			panic(err)
+		}
 		return idht, err
 	})
+
+	cm := connmgr.NewConnManager(
+		100,         // Lowwater
+		400,         // HighWater,
+		time.Minute, // GracePeriod
+	)
 
 	var h host.Host
 	if *useKey {
@@ -128,10 +146,14 @@ func main() {
 			libp2p.Security(libp2ptls.ID, libp2ptls.New),
 			// support secio connections
 			libp2p.Security(secio.ID, secio.New),
+			// support QUIC - experimental
+			libp2p.Transport(libp2pquic.NewTransport),
 			// support any other default transports (TCP)
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
 			routing,
+			// Connection Manager
+			libp2p.ConnectionManager(cm),
 			// Attempt to open ports using uPNP for NATed hosts.
 			libp2p.NATPortMap(),
 			// Let this host use relays and advertise itself on relays if
@@ -149,10 +171,14 @@ func main() {
 			libp2p.Security(libp2ptls.ID, libp2ptls.New),
 			// support secio connections
 			libp2p.Security(secio.ID, secio.New),
+			// support QUIC - experimental
+			libp2p.Transport(libp2pquic.NewTransport),
 			// support any other default transports (TCP)
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
 			routing,
+			// Connection Manager
+			libp2p.ConnectionManager(cm),
 			// Attempt to open ports using uPNP for NATed hosts.
 			libp2p.NATPortMap(),
 			// Let this host use relays and advertise itself on relays if
@@ -166,11 +192,6 @@ func main() {
 		panic(err)
 	}
 
-	// test
-	//h.EventBus()
-	//evts := h.EventBus().GetAllEventTypes()
-	//fmt.Println(evts)
-
 	// create a new PubSub service using the GossipSub router
 	ps, err := pubsub.NewGossipSub(ctx, h)
 	if err != nil {
@@ -183,19 +204,6 @@ func main() {
 	if err != nil {
 		log.Error(err)
 		panic(err)
-	}
-
-	// attempt to connect to boostrappers
-	connectBootstrapPeers(ctx, h, bootstrappers)
-
-	if *info {
-		fmt.Print("👢 Available endpoints: \n")
-		for _, addr := range h.Addrs() {
-			fmt.Printf("	%s/p2p/%s\n", addr, h.ID().Pretty())
-			log.Info("	%s/p2p/%s\n", addr, h.ID().Pretty())
-		}
-		fmt.Println("Press any key to continue...")
-		fmt.Scanln() // wait for Enter Key
 	}
 
 	// use the nickname from the cli flag, or a default if blank
@@ -212,6 +220,16 @@ func main() {
 	if err != nil {
 		log.Error(err)
 		panic(err)
+	}
+
+	if *info {
+		fmt.Print("👢 Available endpoints: \n")
+		for _, addr := range h.Addrs() {
+			fmt.Printf("	%s/p2p/%s\n", addr, h.ID().Pretty())
+			log.Info("	%s/p2p/%s\n", addr, h.ID().Pretty())
+		}
+		fmt.Println("Press any key to continue...")
+		fmt.Scanln() // wait for Enter Key
 	}
 
 	if *daemon {
@@ -259,8 +277,8 @@ func configSetup() {
 	}
 }
 
-func connectBootstrapPeers(ctx context.Context, h host.Host, bootstrappers []string) {
-
+func collectBootstrapAddrInfos(ctx context.Context) ([]peer.AddrInfo, error) {
+	bootstrappers := make([]string, 0)
 	bootstrapFile := configdir.LocalConfig("chatp2p", "bootstrappers")
 	file, err := os.Open(bootstrapFile)
 	if err != nil {
@@ -281,28 +299,23 @@ func connectBootstrapPeers(ctx context.Context, h host.Host, bootstrappers []str
 		LogInfo("🔔 No bootstrappers defined for this node.")
 	}
 
-	for _, s := range bootstrappers {
-		LogInfo("🔔 Calling bootstrap peer:", s)
+	addrInfoSlice := make([]peer.AddrInfo, len(bootstrappers))
+	for i, s := range bootstrappers {
 		targetAddr, err := multiaddr.NewMultiaddr(s)
 		if err != nil {
 			log.Error(err)
-			return
+			return nil, err
 		}
 
 		targetInfo, err := peer.AddrInfoFromP2pAddr(targetAddr)
 		if err != nil {
 			log.Error(err)
-			return
+			return nil, err
 		}
-
-		err = h.Connect(ctx, *targetInfo)
-		if err != nil {
-			log.Error(err)
-			return
-		}
-
-		LogInfo("📞 Connected to bootstrap peer:", targetInfo.ID)
+		addrInfoSlice[i] = *targetInfo
 	}
+
+	return addrInfoSlice, nil
 }
 
 // LogInfo logs to console and logger
