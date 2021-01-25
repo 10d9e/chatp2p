@@ -22,7 +22,6 @@ import (
 	crypto "github.com/libp2p/go-libp2p-crypto"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	libp2pquic "github.com/libp2p/go-libp2p-quic-transport"
 	secio "github.com/libp2p/go-libp2p-secio"
 	libp2ptls "github.com/libp2p/go-libp2p-tls"
 	"github.com/libp2p/go-libp2p/p2p/discovery"
@@ -91,6 +90,24 @@ const bootstrapPeer = "/ip4/35.224.203.143/tcp/4001/p2p/QmeRw9ZbkupTq89mrsXFX87p
 
 var log = logrus.New()
 
+// DecodeClusterSecret parses a hex-encoded string, checks that it is exactly
+// 32 bytes long and returns its value as a byte-slice.x
+func DecodeClusterSecret(hexSecret string) ([]byte, error) {
+	secret, err := hex.DecodeString(hexSecret)
+	if err != nil {
+		return nil, err
+	}
+	switch secretLen := len(secret); secretLen {
+	case 0:
+		log.Warning("Cluster secret is empty, cluster will start on unprotected network.")
+		return nil, nil
+	case 32:
+		return secret, nil
+	default:
+		return nil, fmt.Errorf("input secret is %d bytes, cluster secret should be 32", secretLen)
+	}
+}
+
 func main() {
 	// parse some flags to set our nickname and the room to join
 	flag.Var(&bootstrappers, "connect", "Connect to target bootstrap node. This can be any chat node on the network.")
@@ -109,7 +126,6 @@ func main() {
 
 	listenAddrs := libp2p.ListenAddrStrings(
 		fmt.Sprintf("/ip4/%s/tcp/%d", *listenHost, *port),
-		fmt.Sprintf("/ip4/%s/udp/%d/quic", *listenHost, *port),
 	)
 
 	var err error
@@ -137,17 +153,21 @@ func main() {
 		time.Minute, // GracePeriod
 	)
 
+	secret := "2ac032e2f8161984ce91fd17e0e103e302b6b70ca3431cab5b3e8528255f330d"
+	psk, _ := DecodeClusterSecret(secret)
+
 	var h host.Host
 	if *useKey {
 		pk := getKey()
 		h, err = libp2p.New(ctx,
+			// use a private network
+			libp2p.PrivateNetwork(psk),
+			// listen addresses
 			listenAddrs,
 			// support TLS connections
 			libp2p.Security(libp2ptls.ID, libp2ptls.New),
 			// support secio connections
 			libp2p.Security(secio.ID, secio.New),
-			// support QUIC - experimental
-			libp2p.Transport(libp2pquic.NewTransport),
 			// support any other default transports (TCP)
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
@@ -166,13 +186,14 @@ func main() {
 		LogInfo("🔐 Using identity from key:", h.ID().Pretty())
 	} else {
 		h, err = libp2p.New(ctx,
+			// use a private network
+			libp2p.PrivateNetwork(psk),
+			// listen addressesß
 			listenAddrs,
 			// support TLS connections
 			libp2p.Security(libp2ptls.ID, libp2ptls.New),
 			// support secio connections
 			libp2p.Security(secio.ID, secio.New),
-			// support QUIC - experimental
-			libp2p.Transport(libp2pquic.NewTransport),
 			// support any other default transports (TCP)
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
