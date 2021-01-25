@@ -14,11 +14,9 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 	connmgr "github.com/libp2p/go-libp2p-connmgr"
-	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	cr "github.com/libp2p/go-libp2p-core/routing"
 	crypto "github.com/libp2p/go-libp2p-crypto"
-	discovery2 "github.com/libp2p/go-libp2p-discovery"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	libp2pquic "github.com/libp2p/go-libp2p-quic-transport"
 	secio "github.com/libp2p/go-libp2p-secio"
@@ -32,7 +30,6 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 
 	"github.com/kirsle/configdir"
-	"github.com/matryer/try"
 )
 
 // DiscoveryInterval is how often we re-publish our mDNS records.
@@ -121,36 +118,13 @@ func main() {
 	// DHT Peer routing
 	var idht *dht.IpfsDHT
 	routing := libp2p.Routing(func(h host.Host) (cr.PeerRouting, error) {
-		targetAddr, err := multiaddr.NewMultiaddr(bootstrapPeer)
-		//dht.DefaultBootstrapPeers = append(dht.DefaultBootstrapPeers, targetAddr)
-		addrInfo, _ := peer.AddrInfoFromP2pAddr(targetAddr)
-
-		/*
-			dht.DefaultBootstrapPeers = nil
-			ma, err := multiaddr.NewMultiaddr(bootstrapPeer)
-			if err != nil {
-				panic(err)
-			}
-			dht.DefaultBootstrapPeers = append(dht.DefaultBootstrapPeers, ma)
-		*/
-
 		dht.DefaultBootstrapPeers = nil
-
-		// idht, err = dht.New(ctx, h, dht.RoutingTableRefreshPeriod(10*time.Second), dht.Mode(dht.ModeServer))
-
+		bootstrapPeers, err := collectBootstrapAddrInfos(ctx)
 		idht, err = dht.New(ctx, h,
 			dht.Mode(dht.ModeServer),
 			dht.ProtocolPrefix("/chatp2p/kad/1.0.0"),
-			dht.BootstrapPeers(*addrInfo),
-			// dht.RoutingTableRefreshPeriod(10*time.Second),
+			dht.BootstrapPeers(bootstrapPeers...),
 		)
-
-		idht.RoutingTable().PeerAdded = func(p peer.ID) {
-			fmt.Println("+++ idht.PeerAdded", p)
-		}
-		idht.RoutingTable().PeerRemoved = func(p peer.ID) {
-			fmt.Println("--- idht.PeerRemoved", p)
-		}
 
 		fmt.Println("Bootstrapping the DHT")
 		if err = idht.Bootstrap(ctx); err != nil {
@@ -164,14 +138,6 @@ func main() {
 		400,         // HighWater,
 		time.Minute, // GracePeriod
 	)
-
-	/*
-		not := cm.Notifee()
-
-		not.Disconnected(func(n network.Network, c network.Conn) {
-			fmt.Println("*** Disconnect callback")
-		})
-	*/
 
 	var h host.Host
 	if *useKey {
@@ -207,6 +173,8 @@ func main() {
 			libp2p.Security(libp2ptls.ID, libp2ptls.New),
 			// support secio connections
 			libp2p.Security(secio.ID, secio.New),
+			// support QUIC - experimental
+			libp2p.Transport(libp2pquic.NewTransport),
 			// support any other default transports (TCP)
 			libp2p.DefaultTransports,
 			// Let this host use the DHT to find other hosts
@@ -240,38 +208,6 @@ func main() {
 		panic(err)
 	}
 
-	// attempt to connect to boostrappers
-	//connectBootstrapPeers(ctx, h, bootstrappers)
-
-	err = setupDHTDiscovery(ctx, h, *roomFlag)
-	if err != nil {
-		log.Error(err)
-		panic(err)
-	}
-
-	// This connects to public bootstrappers
-	/*
-		for _, addr := range dht.DefaultBootstrapPeers {
-
-			LogInfo("🔔 Calling DHT bootstrap peer:", addr)
-
-			targetInfo, err := peer.AddrInfoFromP2pAddr(addr)
-			if err != nil {
-				log.Error(err)
-				//return
-			}
-
-			err = h.Connect(ctx, *targetInfo)
-			if err != nil {
-				log.Error(err)
-				//return
-			} else {
-				LogInfo("📞 Connected to bootstrap peer:", targetInfo.ID)
-			}
-
-		}
-	*/
-
 	// use the nickname from the cli flag, or a default if blank
 	nick := *nickFlag
 	if len(nick) == 0 {
@@ -287,36 +223,6 @@ func main() {
 		log.Error(err)
 		panic(err)
 	}
-
-	h.Network().Notify(&network.NotifyBundle{
-		ListenF: func(n network.Network, m multiaddr.Multiaddr) {
-			fmt.Println("*** ListenCloseF")
-		},
-		ListenCloseF: func(n network.Network, m multiaddr.Multiaddr) {
-			fmt.Println("*** ListenCloseF")
-		},
-		ConnectedF: func(n network.Network, c network.Conn) {
-			fmt.Println("*** ConnectedF", cr.ListPeers(), c.ID())
-		},
-		DisconnectedF: func(n network.Network, c network.Conn) {
-
-			if strings.HasPrefix(string(c.ID()), "QmeRw9Zbku") {
-				fmt.Println("*** DisconnectedF", cr.ListPeers(), c.ID())
-				//tryReconnectBootstrapper(ctx, h)
-			}
-
-			/*
-				pid, _ := peer.IDFromString("QmeRw9ZbkupTq89mrsXFX87pxzYpXR9Bmems25LPKvPbwQ")
-				if !containsPeer(cr.ListPeers(), pid) {
-					fmt.Println("*** DisconnectedF", cr.ListPeers(), c.ID())
-				}
-			*/
-		},
-		OpenedStreamF: func(network.Network, network.Stream) {
-		},
-		ClosedStreamF: func(network.Network, network.Stream) {
-		},
-	})
 
 	if *info {
 		fmt.Print("👢 Available endpoints: \n")
@@ -338,54 +244,6 @@ func main() {
 			log.Error("error running text UI: %s", err)
 		}
 	}
-}
-
-func tryReconnectBootstrapper(ctx context.Context, h host.Host) {
-	err := try.Do(func(attempt int) (bool, error) {
-		var err error
-		err = doConnectBootstrap(ctx, h, bootstrapPeer)
-		if err != nil {
-			time.Sleep(10 * time.Second) // wait a bit
-		}
-		return attempt < 20, err
-	})
-	if err != nil {
-		log.Fatalln("error:", err)
-	}
-
-}
-
-func doConnectBootstrap(ctx context.Context, h host.Host, s string) error {
-	LogInfo("🔔 Calling bootstrap peer:", s)
-	targetAddr, err := multiaddr.NewMultiaddr(s)
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	targetInfo, err := peer.AddrInfoFromP2pAddr(targetAddr)
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	err = h.Connect(ctx, *targetInfo)
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	LogInfo("📞 Connected to bootstrap peer:", targetInfo.ID)
-	return nil
-}
-
-func containsPeer(a []peer.ID, x peer.ID) bool {
-	for _, n := range a {
-		if x == n {
-			return true
-		}
-	}
-	return false
 }
 
 func configSetup() {
@@ -421,8 +279,8 @@ func configSetup() {
 	}
 }
 
-func connectBootstrapPeers(ctx context.Context, h host.Host, bootstrappers []string) {
-
+func collectBootstrapAddrInfos(ctx context.Context) ([]peer.AddrInfo, error) {
+	bootstrappers := make([]string, 0)
 	bootstrapFile := configdir.LocalConfig("chatp2p", "bootstrappers")
 	file, err := os.Open(bootstrapFile)
 	if err != nil {
@@ -443,28 +301,23 @@ func connectBootstrapPeers(ctx context.Context, h host.Host, bootstrappers []str
 		LogInfo("🔔 No bootstrappers defined for this node.")
 	}
 
-	for _, s := range bootstrappers {
-		LogInfo("🔔 Calling bootstrap peer:", s)
+	addrInfoSlice := make([]peer.AddrInfo, len(bootstrappers))
+	for i, s := range bootstrappers {
 		targetAddr, err := multiaddr.NewMultiaddr(s)
 		if err != nil {
 			log.Error(err)
-			return
+			return nil, err
 		}
 
 		targetInfo, err := peer.AddrInfoFromP2pAddr(targetAddr)
 		if err != nil {
 			log.Error(err)
-			return
+			return nil, err
 		}
-
-		err = h.Connect(ctx, *targetInfo)
-		if err != nil {
-			log.Error(err)
-			return
-		}
-
-		LogInfo("📞 Connected to bootstrap peer:", targetInfo.ID)
+		addrInfoSlice[i] = *targetInfo
 	}
+
+	return addrInfoSlice, nil
 }
 
 // LogInfo logs to console and logger
@@ -517,101 +370,5 @@ func setupMdnsDiscovery(ctx context.Context, h host.Host) error {
 
 	n := discoveryNotifee{h: h}
 	disc.RegisterNotifee(&n)
-	return nil
-}
-
-func setupDHTDiscovery(ctx context.Context, host host.Host, roomFlag string) error {
-
-	// Start a DHT, for use in peer discovery. We can't just make a new DHT
-	// client because we want each peer to maintain its own local copy of the
-	// DHT, so that the bootstrapping node of the DHT can go down without
-	// inhibiting future peer discovery.
-
-	kademliaDHT, err := dht.New(ctx, host, dht.Mode(dht.ModeServer), dht.ProtocolPrefix("chatp2p/1.0.0"))
-	if err != nil {
-		panic(err)
-	}
-
-	kademliaDHT.RoutingTable().PeerAdded = func(p peer.ID) {
-		fmt.Println("+++ setupDHTDiscovery.PeerAdded", p)
-	}
-	kademliaDHT.RoutingTable().PeerRemoved = func(p peer.ID) {
-		fmt.Println("--- setupDHTDiscovery.PeerRemoved", p)
-	}
-
-	// Bootstrap the DHT. In the default configuration, this spawns a Background
-	// thread that will refresh the peer table every five minutes.
-	log.Debug("Bootstrapping the DHT")
-	if err = kademliaDHT.Bootstrap(ctx); err != nil {
-		panic(err)
-	}
-
-	// Let's connect to the bootstrap nodes first. They will tell us about the
-	// other nodes in the network.
-	/*
-		var wg sync.WaitGroup
-		for _, peerAddr := range config.BootstrapPeers {
-			peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				if err := host.Connect(ctx, *peerinfo); err != nil {
-					log.Warning(err)
-				} else {
-					log.Info("Connection established with bootstrap node:", *peerinfo)
-				}
-			}()
-		}
-		wg.Wait()
-	*/
-
-	// We use a rendezvous point "meet me here" to announce our location.
-	// This is like telling your friends to meet you at the Eiffel Tower.
-	log.Info("Announcing ourselves...")
-	routingDiscovery := discovery2.NewRoutingDiscovery(kademliaDHT)
-	discovery2.Advertise(ctx, routingDiscovery, roomFlag)
-	log.Debug("Successfully announced!")
-
-	// Now, look for others who have announced
-	// This is like your friend telling you the location to meet you.
-	log.Debug("Searching for other peers...")
-	peerChan, err := routingDiscovery.FindPeers(ctx, roomFlag)
-	if err != nil {
-		panic(err)
-	}
-
-	for peer := range peerChan {
-		if peer.ID == host.ID() {
-			continue
-		}
-		log.Info("Found peer:", peer)
-
-		log.Info("Connecting to:", peer)
-
-		/*
-			if err := host.Connect(ctx, *peer.Addrs); err != nil {
-				log.Warning(err)
-			} else {
-				log.Info("Connection established with bootstrap node:", *peerinfo)
-			}
-		*/
-
-		/*
-			stream, err := host.NewStream(ctx, peer.ID, protocol.ID(config.ProtocolID))
-
-			if err != nil {
-				log.Warning("Connection failed:", err)
-				continue
-			} else {
-				rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
-
-				go writeData(rw)
-				go readData(rw)
-			}
-		*/
-
-		log.Info("Connected to:", peer)
-	}
-
 	return nil
 }
