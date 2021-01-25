@@ -1,10 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -16,11 +16,44 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
-const bootstrapPeer = "/ip4/35.224.203.143/tcp/4001/p2p/QmeRw9ZbkupTq89mrsXFX87pxzYpXR9Bmems25LPKvPbwQ"
-const ClusterKey = "2ac032e2f8161984ce91fd17e0e103e302b6b70ca3431cab5b3e8528255f330d"
+const defaultConfig = `{
+    "ClusterKey": "2ac032e2f8161984ce91fd17e0e103e302b6b70ca3431cab5b3e8528255f330d",
+    "Bootstrappers": [
+		"/ip4/35.224.203.143/tcp/1984/p2p/QmeRw9ZbkupTq89mrsXFX87pxzYpXR9Bmems25LPKvPbwQ"
+	]
+}`
+
+// Configuration is the deserialized version of the json configuration
+type Configuration struct {
+	ClusterKey    string
+	Bootstrappers []string
+}
+
+// GetConfig loads the configuration json file
+func GetConfig() *Configuration {
+	configFile := configdir.LocalConfig("chatp2p", "conf.json")
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		err := ioutil.WriteFile(configFile, []byte(defaultConfig), 0644)
+		if err != nil {
+			log.Error(err)
+			panic(err)
+		}
+	}
+
+	file, _ := os.Open(configFile)
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	configuration := Configuration{}
+	err := decoder.Decode(&configuration)
+	if err != nil {
+		fmt.Println("error:", err)
+	}
+	fmt.Println(configuration.Bootstrappers)
+	return &configuration
+}
 
 // ConfigSetup sets up the configuration directory
-func ConfigSetup() {
+func ConfigSetup() *Configuration {
 	// Ensure config directory exists
 	configPath := configdir.LocalConfig("chatp2p")
 	er := configdir.MakePath(configPath) // Ensure it exists.
@@ -38,19 +71,13 @@ func ConfigSetup() {
 	}
 
 	fmt.Println(configPath)
+	// keyfile
 	keyfile := configdir.LocalConfig("chatp2p", ".key")
 	if _, err := os.Stat(keyfile); os.IsNotExist(err) {
 		createKey()
 	}
-	bootstrapFile := configdir.LocalConfig("chatp2p", "bootstrappers")
-	if _, err := os.Stat(bootstrapFile); os.IsNotExist(err) {
-		d1 := []byte(bootstrapPeer + "\n")
-		err := ioutil.WriteFile(bootstrapFile, d1, 0644)
-		if err != nil {
-			log.Error(err)
-			panic(err)
-		}
-	}
+
+	return GetConfig()
 }
 
 // GetKey gets the ECDSA private key from the config
@@ -98,7 +125,7 @@ func createKey() {
 // ClusterSecret parses the hex-encoded secret string, checks that it is exactly
 // 32 bytes long and returns its value as a byte-slice.x
 func ClusterSecret() ([]byte, error) {
-	secret, err := hex.DecodeString(ClusterKey)
+	secret, err := hex.DecodeString(GetConfig().ClusterKey)
 	if err != nil {
 		return nil, err
 	}
@@ -116,22 +143,7 @@ func ClusterSecret() ([]byte, error) {
 // CollectBootstrapAddrInfos converts bootstrap address in config directory
 // to a slice of []peer.AddrInfo
 func CollectBootstrapAddrInfos(ctx context.Context) ([]peer.AddrInfo, error) {
-	bootstrappers := make([]string, 0)
-	bootstrapFile := configdir.LocalConfig("chatp2p", "bootstrappers")
-	file, err := os.Open(bootstrapFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		bootstrappers = append(bootstrappers, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
+	bootstrappers := GetConfig().Bootstrappers
 
 	if len(bootstrappers) == 0 {
 		LogInfo("🔔 No bootstrappers defined for this node.")
@@ -151,6 +163,7 @@ func CollectBootstrapAddrInfos(ctx context.Context) ([]peer.AddrInfo, error) {
 			return nil, err
 		}
 		addrInfoSlice[i] = *targetInfo
+		LogInfo("🔔 Calling bootstrap node:", s)
 	}
 
 	return addrInfoSlice, nil

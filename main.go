@@ -53,7 +53,7 @@ func main() {
 	daemon := flag.Bool("daemon", false, "Run as a boostrap daemon only")
 	flag.Parse()
 
-	ConfigSetup()
+	conf := ConfigSetup()
 
 	ctx := context.Background()
 
@@ -176,7 +176,7 @@ func main() {
 	}
 
 	if *info {
-		fmt.Println("🔖  Network id:", ClusterKey)
+		fmt.Println("🔖  Network id:", conf.ClusterKey)
 		fmt.Print("👢 Available endpoints: \n")
 		for _, addr := range h.Addrs() {
 			fmt.Printf("	%s/p2p/%s\n", addr, h.ID().Pretty())

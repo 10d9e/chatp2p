@@ -23,4 +23,5 @@ require (
 	github.com/rivo/tview v0.0.0-20200507165325-823f280c5426
 	github.com/sirupsen/logrus v1.2.0
 	gopkg.in/matryer/try.v1 v1.0.0-20150601225556-312d2599e12e // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
