@@ -1,31 +1,22 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
-	"strings"
 	"time"
-
-	"github.com/kirsle/configdir"
 
 	"github.com/libp2p/go-libp2p"
 	connmgr "github.com/libp2p/go-libp2p-connmgr"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	cr "github.com/libp2p/go-libp2p-core/routing"
-	crypto "github.com/libp2p/go-libp2p-crypto"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	secio "github.com/libp2p/go-libp2p-secio"
 	libp2ptls "github.com/libp2p/go-libp2p-tls"
 	"github.com/libp2p/go-libp2p/p2p/discovery"
-	"github.com/multiformats/go-multiaddr"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,65 +39,7 @@ func (i *arrayFlags) Set(value string) error {
 
 var bootstrappers arrayFlags
 
-func getKey() crypto.PrivKey {
-	keyfile := configdir.LocalConfig("chatp2p", ".key")
-
-	// open private key file
-	content, err := ioutil.ReadFile(keyfile)
-	if err != nil {
-		panic(err)
-	}
-
-	hexString := strings.TrimSuffix(string(content), "\n")
-	decoded, err := hex.DecodeString(hexString)
-	if err != nil {
-		panic(err)
-	}
-
-	privNew, err := crypto.UnmarshalPrivateKey(decoded)
-	if err != nil {
-		panic(err)
-	}
-	return privNew
-}
-
-func createKey() {
-	keyfile := configdir.LocalConfig("chatp2p", ".key")
-	// Create a new ECDSA key pair for this host.
-	prvKey, _, err := crypto.GenerateECDSAKeyPair(rand.Reader)
-	if err != nil {
-		panic(err)
-	}
-	privB, err := prvKey.Bytes()
-	if err != nil {
-		panic(err)
-	}
-	pk := fmt.Sprintf("%x", string(privB))
-	ioutil.WriteFile(keyfile, []byte(pk), 0644)
-	fmt.Println("🔑 ECDSA key generated")
-}
-
-const bootstrapPeer = "/ip4/35.224.203.143/tcp/4001/p2p/QmeRw9ZbkupTq89mrsXFX87pxzYpXR9Bmems25LPKvPbwQ"
-
 var log = logrus.New()
-
-// DecodeClusterSecret parses a hex-encoded string, checks that it is exactly
-// 32 bytes long and returns its value as a byte-slice.x
-func DecodeClusterSecret(hexSecret string) ([]byte, error) {
-	secret, err := hex.DecodeString(hexSecret)
-	if err != nil {
-		return nil, err
-	}
-	switch secretLen := len(secret); secretLen {
-	case 0:
-		log.Warning("Cluster secret is empty, cluster will start on unprotected network.")
-		return nil, nil
-	case 32:
-		return secret, nil
-	default:
-		return nil, fmt.Errorf("input secret is %d bytes, cluster secret should be 32", secretLen)
-	}
-}
 
 func main() {
 	// parse some flags to set our nickname and the room to join
@@ -120,20 +53,16 @@ func main() {
 	daemon := flag.Bool("daemon", false, "Run as a boostrap daemon only")
 	flag.Parse()
 
-	configSetup()
+	ConfigSetup()
 
 	ctx := context.Background()
-
-	listenAddrs := libp2p.ListenAddrStrings(
-		fmt.Sprintf("/ip4/%s/tcp/%d", *listenHost, *port),
-	)
 
 	var err error
 	// DHT Peer routing
 	var idht *dht.IpfsDHT
 	routing := libp2p.Routing(func(h host.Host) (cr.PeerRouting, error) {
 		dht.DefaultBootstrapPeers = nil
-		bootstrapPeers, err := collectBootstrapAddrInfos(ctx)
+		bootstrapPeers, err := CollectBootstrapAddrInfos(ctx)
 		idht, err = dht.New(ctx, h,
 			dht.Mode(dht.ModeServer),
 			dht.ProtocolPrefix("/chatp2p/kad/1.0.0"),
@@ -153,17 +82,18 @@ func main() {
 		time.Minute, // GracePeriod
 	)
 
-	secret := "2ac032e2f8161984ce91fd17e0e103e302b6b70ca3431cab5b3e8528255f330d"
-	psk, _ := DecodeClusterSecret(secret)
+	psk, _ := ClusterSecret()
 
 	var h host.Host
 	if *useKey {
-		pk := getKey()
+		pk := GetKey()
 		h, err = libp2p.New(ctx,
 			// use a private network
 			libp2p.PrivateNetwork(psk),
 			// listen addresses
-			listenAddrs,
+			libp2p.ListenAddrStrings(
+				fmt.Sprintf("/ip4/%s/tcp/%d", *listenHost, *port),
+			),
 			// support TLS connections
 			libp2p.Security(libp2ptls.ID, libp2ptls.New),
 			// support secio connections
@@ -189,7 +119,9 @@ func main() {
 			// use a private network
 			libp2p.PrivateNetwork(psk),
 			// listen addressesß
-			listenAddrs,
+			libp2p.ListenAddrStrings(
+				fmt.Sprintf("/ip4/%s/tcp/%d", *listenHost, *port),
+			),
 			// support TLS connections
 			libp2p.Security(libp2ptls.ID, libp2ptls.New),
 			// support secio connections
@@ -244,6 +176,7 @@ func main() {
 	}
 
 	if *info {
+		fmt.Println("🔖  Network id:", ClusterKey)
 		fmt.Print("👢 Available endpoints: \n")
 		for _, addr := range h.Addrs() {
 			fmt.Printf("	%s/p2p/%s\n", addr, h.ID().Pretty())
@@ -263,86 +196,6 @@ func main() {
 			log.Error("error running text UI: %s", err)
 		}
 	}
-}
-
-func configSetup() {
-	// Ensure config directory exists
-	configPath := configdir.LocalConfig("chatp2p")
-	er := configdir.MakePath(configPath) // Ensure it exists.
-	if er != nil {
-		panic(er)
-	}
-
-	// set up logging
-	logfile := configdir.LocalConfig("chatp2p", "chatp2p.log")
-	file, erro := os.OpenFile(logfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if erro == nil {
-		log.Out = file
-	} else {
-		log.Info("Failed to log to file, using default stderr")
-	}
-
-	fmt.Println(configPath)
-	keyfile := configdir.LocalConfig("chatp2p", ".key")
-	if _, err := os.Stat(keyfile); os.IsNotExist(err) {
-		createKey()
-	}
-	bootstrapFile := configdir.LocalConfig("chatp2p", "bootstrappers")
-	if _, err := os.Stat(bootstrapFile); os.IsNotExist(err) {
-		d1 := []byte(bootstrapPeer + "\n")
-		err := ioutil.WriteFile(bootstrapFile, d1, 0644)
-		if err != nil {
-			log.Error(err)
-			panic(err)
-		}
-	}
-}
-
-func collectBootstrapAddrInfos(ctx context.Context) ([]peer.AddrInfo, error) {
-	bootstrappers := make([]string, 0)
-	bootstrapFile := configdir.LocalConfig("chatp2p", "bootstrappers")
-	file, err := os.Open(bootstrapFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		bootstrappers = append(bootstrappers, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
-
-	if len(bootstrappers) == 0 {
-		LogInfo("🔔 No bootstrappers defined for this node.")
-	}
-
-	addrInfoSlice := make([]peer.AddrInfo, len(bootstrappers))
-	for i, s := range bootstrappers {
-		targetAddr, err := multiaddr.NewMultiaddr(s)
-		if err != nil {
-			log.Error(err)
-			return nil, err
-		}
-
-		targetInfo, err := peer.AddrInfoFromP2pAddr(targetAddr)
-		if err != nil {
-			log.Error(err)
-			return nil, err
-		}
-		addrInfoSlice[i] = *targetInfo
-	}
-
-	return addrInfoSlice, nil
-}
-
-// LogInfo logs to console and logger
-func LogInfo(m string, args ...interface{}) {
-	fmt.Println(m, args)
-	log.Info(m, args)
 }
 
 // printErr is like fmt.Printf, but writes to stderr.
