@@ -13,11 +13,13 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	cr "github.com/libp2p/go-libp2p-core/routing"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/libp2p/go-libp2p-kad-dht/dual"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	secio "github.com/libp2p/go-libp2p-secio"
 	libp2ptls "github.com/libp2p/go-libp2p-tls"
 	"github.com/libp2p/go-libp2p/p2p/discovery"
-	"github.com/sirupsen/logrus"
 )
 
 // DiscoveryInterval is how often we re-publish our mDNS records.
@@ -39,8 +41,6 @@ func (i *arrayFlags) Set(value string) error {
 
 var bootstrappers arrayFlags
 
-var log = logrus.New()
-
 type blankValidator struct{}
 
 func (blankValidator) Validate(_ string, _ []byte) error        { return nil }
@@ -56,17 +56,19 @@ func main() {
 	useKey := flag.Bool("use-key", false, "Use an ECSDS keypair as this node's identifier. The keypair is generated if it does not exist in the app's local config directory.")
 	info := flag.Bool("info", false, "Display node endpoint information before logging into the main chat room")
 	daemon := flag.Bool("daemon", false, "Run as a boostrap daemon only")
+
+	debug := flag.Bool("debug", false, "Run in development mode")
 	flag.Parse()
 
-	conf := ConfigSetup()
+	conf := ConfigSetup(*debug)
 
 	ctx := context.Background()
 
 	var err error
 	// DHT Peer routing
-	var idht *dht.IpfsDHT
+	var idht *dual.DHT
 	routing := libp2p.Routing(func(h host.Host) (cr.PeerRouting, error) {
-		idht, err = makeDht(ctx, h)
+		idht, err := makeDht(ctx, h)
 		return idht, err
 	})
 
@@ -108,7 +110,7 @@ func main() {
 			// Use the defined identity
 			libp2p.Identity(pk),
 		)
-		LogInfo("🔐 Using identity from key:", h.ID().Pretty())
+		log.Info("🔐 Using identity from key:", h.ID().Pretty())
 	} else {
 		h, err = libp2p.New(ctx,
 			// use a private network
@@ -139,6 +141,25 @@ func main() {
 	if err != nil {
 		log.Error(err)
 		panic(err)
+	}
+
+	if *debug {
+		// tests
+		// time.Sleep(10 * time.Second)
+		idht, _ = makeDht(ctx, h)
+		one := []byte("ABC€")
+		err = idht.PutValue(ctx, "/v/one", one)
+		if err != nil {
+			panic(err)
+		}
+
+		first, err := idht.GetValue(ctx, "one")
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Println("DHT values:", first)
+		/////////
 	}
 
 	// create a new PubSub service using the GossipSub router
@@ -194,14 +215,18 @@ func main() {
 	}
 }
 
-func makeDht(ctx context.Context, h host.Host) (*dht.IpfsDHT, error) {
+func makeDht(ctx context.Context, h host.Host) (*dual.DHT, error) {
+
 	dht.DefaultBootstrapPeers = nil
+
 	bootstrapPeers, err := CollectBootstrapAddrInfos(ctx)
-	idht, _ := dht.New(ctx, h,
-		dht.Mode(dht.ModeServer),
-		dht.NamespacedValidator("v", blankValidator{}),
-		dht.ProtocolPrefix("/sporep2p/kad/1.0.0"),
-		dht.BootstrapPeers(bootstrapPeers...),
+	idht, _ := dual.New(ctx, h,
+		dual.DHTOption(
+			dht.Mode(dht.ModeServer),
+			dht.NamespacedValidator("v", blankValidator{}),
+			dht.ProtocolPrefix("/chatp2p/kad/1.0.0"),
+			dht.DisableAutoRefresh(),
+			dht.BootstrapPeers(bootstrapPeers...)),
 	)
 
 	fmt.Println("Bootstrapping the DHT")

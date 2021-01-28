@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/libp2p/go-libp2p-core/peer"
-	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/libp2p/go-libp2p-kad-dht/dual"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
@@ -21,7 +21,7 @@ type ChatRoom struct {
 	Messages chan *ChatMessage
 
 	ctx   context.Context
-	idht  *dht.IpfsDHT
+	idht  *dual.DHT
 	ps    *pubsub.PubSub
 	topic *pubsub.Topic
 	sub   *pubsub.Subscription
@@ -40,7 +40,7 @@ type ChatMessage struct {
 
 // JoinChatRoom tries to subscribe to the PubSub topic for the room name, returning
 // a ChatRoom on success.
-func JoinChatRoom(ctx context.Context, idht *dht.IpfsDHT, ps *pubsub.PubSub, selfID peer.ID, nickname string, roomName string) (*ChatRoom, error) {
+func JoinChatRoom(ctx context.Context, idht *dual.DHT, ps *pubsub.PubSub, selfID peer.ID, nickname string, roomName string) (*ChatRoom, error) {
 	// join the pubsub topic
 	topic, err := ps.Join(topicName(roomName))
 	if err != nil {

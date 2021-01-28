@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	crypto "github.com/libp2p/go-libp2p-crypto"
 	"github.com/multiformats/go-multiaddr"
+	log "github.com/sirupsen/logrus"
 )
 
 const defaultConfig = `{
@@ -53,7 +55,7 @@ func GetConfig() *Configuration {
 }
 
 // ConfigSetup sets up the configuration directory
-func ConfigSetup() *Configuration {
+func ConfigSetup(debug bool) *Configuration {
 	// Ensure config directory exists
 	configPath := configdir.LocalConfig("chatp2p")
 	er := configdir.MakePath(configPath) // Ensure it exists.
@@ -65,12 +67,19 @@ func ConfigSetup() *Configuration {
 	logfile := configdir.LocalConfig("chatp2p", "chatp2p.log")
 	file, erro := os.OpenFile(logfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if erro == nil {
-		log.Out = file
+		log.SetOutput(file)
 	} else {
 		log.Info("Failed to log to file, using default stderr")
 	}
 
-	fmt.Println(configPath)
+	if debug {
+		// Only log the warning severity or above.
+		log.SetLevel(log.WarnLevel)
+		log.SetOutput(io.MultiWriter(file, os.Stdout))
+
+	}
+	fmt.Println("Logging to file:", logfile)
+
 	// keyfile
 	keyfile := configdir.LocalConfig("chatp2p", ".key")
 	if _, err := os.Stat(keyfile); os.IsNotExist(err) {
@@ -146,7 +155,7 @@ func CollectBootstrapAddrInfos(ctx context.Context) ([]peer.AddrInfo, error) {
 	bootstrappers := GetConfig().Bootstrappers
 
 	if len(bootstrappers) == 0 {
-		LogInfo("🔔 No bootstrappers defined for this node.")
+		log.Info("🔔 No bootstrappers defined for this node.")
 	}
 
 	addrInfoSlice := make([]peer.AddrInfo, len(bootstrappers))
@@ -163,14 +172,8 @@ func CollectBootstrapAddrInfos(ctx context.Context) ([]peer.AddrInfo, error) {
 			return nil, err
 		}
 		addrInfoSlice[i] = *targetInfo
-		LogInfo("🔔 Calling bootstrap node:", s)
+		log.Info("🔔 Calling bootstrap node:", s)
 	}
 
 	return addrInfoSlice, nil
-}
-
-// LogInfo logs to console and logger
-func LogInfo(m string, args ...interface{}) {
-	fmt.Println(m, args)
-	log.Info(m, args)
 }
