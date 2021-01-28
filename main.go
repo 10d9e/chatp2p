@@ -41,6 +41,11 @@ var bootstrappers arrayFlags
 
 var log = logrus.New()
 
+type blankValidator struct{}
+
+func (blankValidator) Validate(_ string, _ []byte) error        { return nil }
+func (blankValidator) Select(_ string, _ [][]byte) (int, error) { return 0, nil }
+
 func main() {
 	// parse some flags to set our nickname and the room to join
 	flag.Var(&bootstrappers, "connect", "Connect to target bootstrap node. This can be any chat node on the network.")
@@ -61,18 +66,7 @@ func main() {
 	// DHT Peer routing
 	var idht *dht.IpfsDHT
 	routing := libp2p.Routing(func(h host.Host) (cr.PeerRouting, error) {
-		dht.DefaultBootstrapPeers = nil
-		bootstrapPeers, err := CollectBootstrapAddrInfos(ctx)
-		idht, err = dht.New(ctx, h,
-			dht.Mode(dht.ModeServer),
-			dht.ProtocolPrefix("/chatp2p/kad/1.0.0"),
-			dht.BootstrapPeers(bootstrapPeers...),
-		)
-
-		fmt.Println("Bootstrapping the DHT")
-		if err = idht.Bootstrap(ctx); err != nil {
-			panic(err)
-		}
+		idht, err = makeDht(ctx, h)
 		return idht, err
 	})
 
@@ -110,6 +104,7 @@ func main() {
 			// it finds it is behind NAT. Use libp2p.Relay(options...) to
 			// enable active relays and more.
 			libp2p.EnableAutoRelay(),
+			libp2p.EnableNATService(),
 			// Use the defined identity
 			libp2p.Identity(pk),
 		)
@@ -134,6 +129,7 @@ func main() {
 			libp2p.ConnectionManager(cm),
 			// Attempt to open ports using uPNP for NATed hosts.
 			libp2p.NATPortMap(),
+			libp2p.EnableNATService(),
 			// Let this host use relays and advertise itself on relays if
 			// it finds it is behind NAT. Use libp2p.Relay(options...) to
 			// enable active relays and more.
@@ -169,7 +165,7 @@ func main() {
 	room := *roomFlag
 
 	// join the chat room
-	cr, err := JoinChatRoom(ctx, ps, h.ID(), nick, room)
+	cr, err := JoinChatRoom(ctx, idht, ps, h.ID(), nick, room)
 	if err != nil {
 		log.Error(err)
 		panic(err)
@@ -196,6 +192,23 @@ func main() {
 			log.Error("error running text UI: %s", err)
 		}
 	}
+}
+
+func makeDht(ctx context.Context, h host.Host) (*dht.IpfsDHT, error) {
+	dht.DefaultBootstrapPeers = nil
+	bootstrapPeers, err := CollectBootstrapAddrInfos(ctx)
+	idht, _ := dht.New(ctx, h,
+		dht.Mode(dht.ModeServer),
+		dht.NamespacedValidator("v", blankValidator{}),
+		dht.ProtocolPrefix("/sporep2p/kad/1.0.0"),
+		dht.BootstrapPeers(bootstrapPeers...),
+	)
+
+	fmt.Println("Bootstrapping the DHT")
+	if err = idht.Bootstrap(ctx); err != nil {
+		panic(err)
+	}
+	return idht, err
 }
 
 // printErr is like fmt.Printf, but writes to stderr.

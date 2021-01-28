@@ -15,9 +15,10 @@ import (
 // mode. You can quit with Ctrl-C, or by typing "/quit" into the
 // chat prompt.
 type ChatUI struct {
-	cr        *ChatRoom
-	app       *tview.Application
-	peersList *tview.TextView
+	cr         *ChatRoom
+	app        *tview.Application
+	peersList  *tview.TextView
+	topicsList *tview.TextView
 
 	msgW    io.Writer
 	inputCh chan string
@@ -77,28 +78,45 @@ func NewChatUI(cr *ChatRoom) *ChatUI {
 	peersList.SetBorder(true)
 	peersList.SetTitle("Peers")
 
+	topicsList := tview.NewTextView()
+	topicsList.SetBorder(true)
+	topicsList.SetTitle("Topics")
+
 	// chatPanel is a horizontal box with messages on the left and peers on the right
 	// the peers list takes 20 columns, and the messages take the remaining space
+
 	chatPanel := tview.NewFlex().
+		AddItem(topicsList, 20, 1, false).
 		AddItem(msgBox, 0, 1, false).
 		AddItem(peersList, 20, 1, false)
 
-	// flex is a vertical box with the chatPanel on top and the input field at the bottom.
+		// flex is a vertical box with the chatPanel on top and the input field at the bottom.
 
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(chatPanel, 0, 1, false).
 		AddItem(input, 1, 1, true)
 
+	/*
+		flex := tview.NewFlex().
+			AddItem(tview.NewBox().SetBorder(true).SetTitle("Left (1/2 x width of Top)"), 0, 1, false).
+			AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+				//AddItem(tview.NewBox().SetBorder(true).SetTitle("Top"), 0, 1, false).
+				AddItem(msgBox.SetTitle("Middle (3 x height of Top)"), 0, 3, false).
+				AddItem(input, 5, 1, false), 0, 2, true).
+			AddItem(peersList.SetTitle("Right (20 cols)"), 20, 1, false)
+	*/
+
 	app.SetRoot(flex, true)
 
 	return &ChatUI{
-		cr:        cr,
-		app:       app,
-		peersList: peersList,
-		msgW:      msgBox,
-		inputCh:   inputCh,
-		doneCh:    make(chan struct{}, 1),
+		cr:         cr,
+		app:        app,
+		peersList:  peersList,
+		topicsList: topicsList,
+		msgW:       msgBox,
+		inputCh:    inputCh,
+		doneCh:     make(chan struct{}, 1),
 	}
 }
 
@@ -114,6 +132,17 @@ func (ui *ChatUI) Run() error {
 // end signals the event loop to exit gracefully
 func (ui *ChatUI) end() {
 	ui.doneCh <- struct{}{}
+}
+
+func (ui *ChatUI) refreshTopics() {
+	topics := ui.cr.ps.GetTopics()
+	idStrs := make([]string, len(topics))
+	for i, t := range topics {
+		idStrs[i] = t
+	}
+
+	ui.topicsList.SetText(strings.Join(idStrs, "\n"))
+	ui.app.Draw()
 }
 
 // refreshPeers pulls the list of peers currently in the chat room and
@@ -147,26 +176,34 @@ func (ui *ChatUI) displaySelfMessage(msg string) {
 // and displays messages received from the chat room. It also periodically
 // refreshes the list of peers in the UI.
 func (ui *ChatUI) handleEvents() {
-	peerRefreshTicker := time.NewTicker(time.Second)
-	defer peerRefreshTicker.Stop()
+	uiRefreshTicker := time.NewTicker(time.Second)
+	defer uiRefreshTicker.Stop()
 
 	for {
 		select {
 		case input := <-ui.inputCh:
-			// when the user types in a line, publish it to the chat room and print to the message window
-			err := ui.cr.Publish(input)
-			if err != nil {
-				printErr("publish error: %s", err)
+
+			// check to see if it starts with a '/' character
+			if strings.HasPrefix(input, "/") {
+				// command is run
+				RunCommand(ui, input)
+			} else {
+				// when the user types in a line, publish it to the chat room and print to the message window
+				err := ui.cr.Publish(input)
+				if err != nil {
+					printErr("publish error: %s", err)
+				}
+				ui.displaySelfMessage(input)
 			}
-			ui.displaySelfMessage(input)
 
 		case m := <-ui.cr.Messages:
 			// when we receive a message from the chat room, print it to the message window
 			ui.displayChatMessage(m)
 
-		case <-peerRefreshTicker.C:
+		case <-uiRefreshTicker.C:
 			// refresh the list of peers in the chat room periodically
 			ui.refreshPeers()
+			ui.refreshTopics()
 
 		case <-ui.cr.ctx.Done():
 			return

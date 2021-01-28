@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/libp2p/go-libp2p-core/peer"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
@@ -20,6 +21,7 @@ type ChatRoom struct {
 	Messages chan *ChatMessage
 
 	ctx   context.Context
+	idht  *dht.IpfsDHT
 	ps    *pubsub.PubSub
 	topic *pubsub.Topic
 	sub   *pubsub.Subscription
@@ -38,7 +40,7 @@ type ChatMessage struct {
 
 // JoinChatRoom tries to subscribe to the PubSub topic for the room name, returning
 // a ChatRoom on success.
-func JoinChatRoom(ctx context.Context, ps *pubsub.PubSub, selfID peer.ID, nickname string, roomName string) (*ChatRoom, error) {
+func JoinChatRoom(ctx context.Context, idht *dht.IpfsDHT, ps *pubsub.PubSub, selfID peer.ID, nickname string, roomName string) (*ChatRoom, error) {
 	// join the pubsub topic
 	topic, err := ps.Join(topicName(roomName))
 	if err != nil {
@@ -53,6 +55,7 @@ func JoinChatRoom(ctx context.Context, ps *pubsub.PubSub, selfID peer.ID, nickna
 
 	cr := &ChatRoom{
 		ctx:      ctx,
+		idht:     idht,
 		ps:       ps,
 		topic:    topic,
 		sub:      sub,
@@ -83,6 +86,11 @@ func (cr *ChatRoom) Publish(message string) error {
 
 func (cr *ChatRoom) ListPeers() []peer.ID {
 	return cr.ps.ListPeers(topicName(cr.roomName))
+}
+
+func (cr *ChatRoom) GetValue(key string) []byte {
+	b, _ := cr.idht.GetValue(cr.ctx, "key")
+	return b
 }
 
 // readLoop pulls messages from the pubsub topic and pushes them onto the Messages channel.
