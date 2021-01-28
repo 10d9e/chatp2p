@@ -2,7 +2,7 @@
 
 Experimentation with libp2p gossipsub, dht, and peer discovery with a simple chat application. This is a fully decentralized chat app whereby users can connect and chat with other users without the need for a central server. It is entirely possible to stand up an adhoc chat network anywhere.
 
-Out of box, this dapp can be used on a local network without explicitely connecting out to bootstrap nodes, using mdns. When connected to other external nodes, peer discovery automatically connects all visible nodes to each other via a gossip protocol.
+Out of box, this dapp can be used on a local network without explicitely connecting out to bootstrap nodes, using mdns on a local network. When connected to other external nodes, peer discovery automatically connects all visible nodes to each other via a gossip protocol.
 
 ## Building 
 In the builds directory, run the `build_release.sh` script to build macos, windows and linux binaries (in `builds/release/`).
